@@ -6,71 +6,75 @@ import torch
 import argparse
 import os
 
+from icecream import ic
+
 def main(args):
-	ds = load_dataset('cerebras/SlimPajama-627B', streaming=True, split='train')
+	# load dataset and tokenizer
+	ds = load_dataset(args.data_path, split=args.data_split, streaming=True)
 	tokenizer = AutoTokenizer.from_pretrained(args.model_path)
 
-	token_counter = Counter()
-	num_lines = args.num_lines
-	num_tokens = 0
+	# count how often each token occurs in the dataset
+	tok_freq = torch.zeros(tokenizer.vocab_size, dtype=torch.float32)
 	for i, d in tqdm(enumerate(ds)):
-		tokens = tokenizer.encode(d['text'])
-		token_counter.update(tokens)
-		num_tokens += len(tokens)
-		if i == num_lines:
+		tokens = tokenizer.encode(d['text'], return_tensors='pt').squeeze()
+		valid_tokens = tokens[tokens < tokenizer.vocab_size]
+		if len(valid_tokens) > 0:
+			tok_freq += torch.bincount(valid_tokens, minlength=tokenizer.vocab_size)
+		if i == args.num_samples:
 			break
 
-	sort_by_freq = sorted(token_counter.items(), key=lambda x: x[1], reverse=True)
-	ids, frequencies = zip(*sort_by_freq)
-	ids = list(ids)
+	num_tokens = tok_freq.sum().astype(int)
+	print(f"processed {args.num_samples} data samples and {num_tokens} tokens")
 
-	print(f"processed {num_lines} items")
-	print(f"processed {num_tokens} tokens")
+	# compute relative token frequency
+	tok_rel_freq = tok_freq / num_tokens
 
-	if not os.path.exists(f'fr-index/{args.model_name}'):
-			os.makedirs(f'fr-index/{args.model_name}')
-			
-	for r in args.vocab_size:
-		eos_id = tokenizer.encode(tokenizer.special_tokens_map['eos_token'])
-		if eos_id not in ids[:r]:
-			not_in_ids = len(set(eos_id) - set(ids[:r]))
-			freq_ids = ids[:r - not_in_ids] + eos_id
-		else:
-			freq_ids = ids[:r]
-		
-		print(f'save freq_{r}.pt, size:', len(freq_ids))
-		with open(f'lmh_index/{args.model_name}/freq_{r}.pt', 'wb') as f:
-			torch.save(freq_ids, f)
+	# save tok_rel_freq
+	if not os.path.exists(args.out_dir):
+		os.makedirs(args.out_dir)
+
+	model_name = args.model_path.replace('/', '-')
+	out_path = f'{args.out_dir}/{model_name}_tok_rel_freq.pt'
+	with open(out_path, 'wb') as f:
+		torch.save(tok_rel_freq, f)
+
+	return tok_freq
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser()
 
+	# unsloth/Llama-3.2-1B-Instruct is a reupload of meta-llama/Meta-Llama-3.2-1B-Instruct that doesn't require HF token
 	parser.add_argument(
-		'--model_name', 
-		type=str, 
-		default='llama3-8b-instruct',
-		help='The name of the model.'
-	)
-	parser.add_argument(
-		'--model_path', 
-		type=str, 
-		default='meta-llama/Llama-3-8B-Instruct',
+		'--model_path',
+		type=str,
+		default='unsloth/Llama-3.2-1B-Instruct',
 		help='The path to the model.'
 	)
 	parser.add_argument(
-		'--num_lines', 
-		type=int, 
-		default=1000000, 
-		help='The number of SlimPajama lines to process.'
+		'--data_path',
+		type=str,
+		default='cerebras/SlimPajama-627B',
+		help='The path to the dataset.'
 	)
 	parser.add_argument(
-		'--vocab_size',
-		nargs='+',
-		type=int,
-		default=[8192, 16384, 32768, 65536],
-		help='The vocab sizes to process.'
+		'--data_split',
+		type=str,
+		default='train',
+		help='The split of the dataset.'
 	)
-	
+	parser.add_argument(
+		'--num_samples',
+		type=int,
+		default=10,
+		help='The number of dataset samples to process.'
+	)
+	parser.add_argument(
+		'--out_dir',
+		type=str,
+		default='./fr-index',
+		help='The path to save the sorted tokens and frequencies.'
+	)
+
 	args = parser.parse_args()
 	print(args)
 	main(args)
