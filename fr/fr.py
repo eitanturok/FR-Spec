@@ -23,22 +23,21 @@ def main(args):
 		if i == args.num_samples:
 			break
 
-	num_tokens = tok_freq.sum().astype(int)
+	num_tokens = int(tok_freq.sum())
 	print(f"processed {args.num_samples} data samples and {num_tokens} tokens")
 
 	# compute relative token frequency
-	tok_rel_freq = tok_freq / num_tokens
+	token_scores = tok_freq / num_tokens
 
-	# save tok_rel_freq
-	if not os.path.exists(args.out_dir):
-		os.makedirs(args.out_dir)
-
-	model_name = args.model_path.replace('/', '-')
-	out_path = f'{args.out_dir}/{model_name}_tok_rel_freq.pt'
+	# save token_scores
+	os.makedirs(args.out_dir, exist_ok=True)
+	model_name = args.model_path.replace('/', '-').lower()
+	out_path = f'{args.out_dir}/{model_name}_token_scores.pt'
 	with open(out_path, 'wb') as f:
-		torch.save(tok_rel_freq, f)
+		torch.save(token_scores, f)
+	print(f'Saved token scores at {out_path}')
 
-	return tok_freq
+	return token_scores
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser()
