@@ -6,7 +6,6 @@ import torch
 import argparse
 import os
 
-from icecream import ic
 
 def main(args):
 	# load dataset and tokenizer
@@ -14,30 +13,27 @@ def main(args):
 	tokenizer = AutoTokenizer.from_pretrained(args.model_path)
 
 	# count how often each token occurs in the dataset
-	tok_freq = torch.zeros(tokenizer.vocab_size, dtype=torch.float32)
-	for i, d in tqdm(enumerate(ds)):
+	vocab_freqs = torch.zeros(tokenizer.vocab_size, dtype=torch.float32)
+	for i, d in tqdm(enumerate(ds), total=args.num_samples):
 		tokens = tokenizer.encode(d['text'], return_tensors='pt').squeeze()
 		valid_tokens = tokens[tokens < tokenizer.vocab_size]
 		if len(valid_tokens) > 0:
-			tok_freq += torch.bincount(valid_tokens, minlength=tokenizer.vocab_size)
+			vocab_freqs += torch.bincount(valid_tokens, minlength=tokenizer.vocab_size)
 		if i == args.num_samples:
 			break
 
-	num_tokens = int(tok_freq.sum())
+	num_tokens = int(vocab_freqs.sum())
 	print(f"processed {args.num_samples} data samples and {num_tokens} tokens")
-
-	# compute relative token frequency
-	token_scores = tok_freq / num_tokens
 
 	# save token_scores
 	os.makedirs(args.out_dir, exist_ok=True)
 	model_name = args.model_path.replace('/', '-').lower()
-	out_path = f'{args.out_dir}/{model_name}_token_scores.pt'
+	out_path = f'{args.out_dir}/{model_name}_vocab_freqs.pt'
 	with open(out_path, 'wb') as f:
-		torch.save(token_scores, f)
+		torch.save(vocab_freqs, f)
 	print(f'Saved token scores at {out_path}')
 
-	return token_scores
+	return vocab_freqs
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser()
